@@ -1,0 +1,14 @@
+{
+    # Override standard HTTP/HTTPS listening ports to high ports (>1024)
+    http_port 8080
+    https_port 8443
+}
+
+https://localhost:8443 {
+    reverse_proxy radiopaedia-connect:5000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  radiopaedia-connect:
+    image: radiopaediaorg/radiopaedia-connect:latest
+    container_name: radiopaedia-connect
+    ports:
+      - "4104:104"    # Host port 4104 maps to internal container port 104
+    volumes:
+      - rp-data:/data
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+
+  orthanc:
+    image: jodogne/orthanc:latest
+    container_name: orthanc
+    ports:
+      - "4242:4242"   # Orthanc DICOM port
+      - "8042:8042"   # Orthanc Explorer web UI port
+    restart: unless-stopped
+    volumes:
+      - ./orthanc.json:/etc/orthanc/orthanc.json
+      - orthanc-storage:/var/lib/orthanc/db  # <--- This saves your studies permanently on the host
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy-proxy
+    ports:
+      - "8080:8080"   # Non-privileged HTTP port
+      - "8443:8443"   # Non-privileged HTTPS port
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  rp-data:
+    external: true
+  orthanc-storage:     # <--- Declared here so Docker manages the volume
+  caddy_data:
+  caddy_config:
