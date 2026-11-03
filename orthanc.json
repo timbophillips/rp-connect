@@ -6,5 +6,12 @@
   "DicomAlwaysAllowFind": true,
   "DicomAlwaysAllowMove": true,
   "DicomAlwaysAllowGet": true,
-  "DicomCheckModalityHost": false
+  "DicomCheckModalityHost": false,
+  "DicomModalities": {
+    "RCONNECT_SCU": [
+      "RCONNECT_SCU",
+      "radiopaedia-connect",
+      104
+    ]
+  }
 }
