@@ -6,6 +6,7 @@ services:
       - "4104:104"    # Host port 4104 maps to internal container port 104
     volumes:
       - rp-data:/data
+      - ./appsettings.json:/app/appsettings.json:ro
     restart: unless-stopped
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
