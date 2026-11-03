@@ -44,7 +44,7 @@ services:
       ORTHANC__DICOM_CHECK_MODALITY_HOST: "false"
       ORTHANC__REST_API_WRITE_TO_FILE_SYSTEM_ENABLED: "true"
       ORTHANC__DICOM_MODALITIES: |
-        { "RCONNECT_SCU": ["RCONNECT_SCP", "radiopaedia-connect", 104] }
+        { "RCONNECT_SCP": ["RCONNECT_SCP", "radiopaedia-connect", 104] }
 
   caddy:
     image: caddy:latest
