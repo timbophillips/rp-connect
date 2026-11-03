@@ -1,0 +1,16 @@
+{
+  "AuthenticationEnabled": false,
+  "RemoteAccessAllowed": true,
+  "DicomModalities": {
+    "radiopaedia-connect": [
+      "RCONNECT_SCU",
+      "radiopaedia-connect",
+      104
+    ],
+    "timiv": [
+      "timiv",
+      "172.21.0.1",
+      5035
+    ]
+  }
+}

@@ -20,6 +20,8 @@ services:
     volumes:
       - ./orthanc.json:/etc/orthanc/orthanc.json
       - orthanc-storage:/var/lib/orthanc/db  # <--- This saves your studies permanently on the host
+    environment:
+      - VERBOSE_ENABLED="true"  # This enables verbose logs to stdout/stderr
 
   caddy:
     image: caddy:latest

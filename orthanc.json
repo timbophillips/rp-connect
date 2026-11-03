@@ -1,7 +1,10 @@
 {
   "AuthenticationEnabled": false,
   "RemoteAccessAllowed": true,
-  "DicomModalities" : {
-    "radiopaedia-connect" : [ "RCONNECT_SCU", "radiopaedia-connect", 104 ]
-  }
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowStore": true,
+  "DicomAlwaysAllowFind": true,
+  "DicomAlwaysAllowMove": true,
+  "DicomAlwaysAllowGet": true,
+  "DicomCheckModalityHost": false
 }
