@@ -4,25 +4,47 @@ services:
     container_name: radiopaedia-connect
     ports:
       - "4104:104"    # Host port 4104 maps to internal container port 104
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
-      - rp-data:/data
-      - ./appsettings.json:/app/appsettings.json:ro
-    restart: unless-stopped
+      - ./data/radiopaedia-connect:/data   # SQLite DB, downloaded DICOMs, data-protection keys
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_ENVIRONMENT=Production
+    restart: unless-stopped
 
   orthanc:
-    image: jodogne/orthanc:latest
+    image: orthancteam/orthanc:26.9.1
     container_name: orthanc
     ports:
       - "4242:4242"   # Orthanc DICOM port
       - "8042:8042"   # Orthanc Explorer web UI port
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run/orthanc/plugins:exec   # entrypoint copies enabled plugins here at startup (needs exec to load .so files)
     volumes:
-      - ./orthanc.json:/etc/orthanc/orthanc.json
-      - orthanc-storage:/var/lib/orthanc/db  # <--- This saves your studies permanently on the host
+      - ./orthanc.d:/etc/orthanc:ro          # Machine-local Orthanc config (including the timiv modality)
+      - ./data/orthanc:/var/lib/orthanc/db   # Orthanc index + DICOM storage
+      - ./data/orthanc-export:/export        # Target for REST /export (RestApiWriteToFileSystemEnabled)
+      - ./data/orthanc-hostid:/etc/hostid:ro # Fixed hostid for DICOM UID generation (entrypoint would otherwise write /etc/hostid)
+    # ORTHANC__FOO_BAR maps to the "FooBar" config key; values are parsed as JSON where possible.
     environment:
-      - VERBOSE_ENABLED="true"  # This enables verbose logs to stdout/stderr
+      VERBOSE_ENABLED: "true"   # info-level logs to stdout
+      ORTHANC__STORAGE_DIRECTORY: /var/lib/orthanc/db
+      ORTHANC__INDEX_DIRECTORY: /var/lib/orthanc/db
+      ORTHANC__AUTHENTICATION_ENABLED: "false"
+      ORTHANC__REMOTE_ACCESS_ALLOWED: "true"
+      ORTHANC__DICOM_ALWAYS_ALLOW_ECHO: "true"
+      ORTHANC__DICOM_ALWAYS_ALLOW_STORE: "true"
+      ORTHANC__DICOM_ALWAYS_ALLOW_FIND: "true"
+      ORTHANC__DICOM_ALWAYS_ALLOW_MOVE: "true"
+      ORTHANC__DICOM_ALWAYS_ALLOW_GET: "true"
+      ORTHANC__DICOM_CHECK_MODALITY_HOST: "false"
+      ORTHANC__REST_API_WRITE_TO_FILE_SYSTEM_ENABLED: "true"
+      ORTHANC__DICOM_MODALITIES: |
+        { "RCONNECT_SCU": ["RCONNECT_SCP", "radiopaedia-connect", 104] }
 
   caddy:
     image: caddy:latest
@@ -30,15 +52,33 @@ services:
     ports:
       - "8080:8080"   # Non-privileged HTTP port
       - "8443:8443"   # Non-privileged HTTPS port
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
 
+configs:
+  caddyfile:
+    # Compose interpolates $VARS here; escape a literal $ as $$. Caddy's {placeholders} are untouched.
+    content: |
+      {
+          # Override standard HTTP/HTTPS listening ports to high ports (>1024)
+          http_port 8080
+          https_port 8443
+      }
+
+      https://localhost:8443 {
+          reverse_proxy radiopaedia-connect:5000 {
+              header_up Host {host}
+              header_up X-Real-IP {remote}
+              header_up X-Forwarded-For {remote}
+              header_up X-Forwarded-Proto {scheme}
+          }
+      }
+
 volumes:
-  rp-data:
-    external: true
-  orthanc-storage:     # <--- Declared here so Docker manages the volume
   caddy_data:
   caddy_config:
