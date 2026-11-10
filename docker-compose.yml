@@ -15,7 +15,6 @@ services:
 
   connect-configure:
     image: python:3.14-alpine
-    profiles: ["configure"]
     network_mode: host
     read_only: true
     cap_drop: ["ALL"]

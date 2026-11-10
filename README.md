@@ -46,6 +46,8 @@ Host networking works natively on Linux. On Docker Desktop 4.34 or later, enable
 
 ## 🚀 Quick start
 
+Create the admin password file described in **Browser-free setup with Docker** below **before starting the stack**. The configuration helper runs automatically with `docker compose up`.
+
 ```bash
 # 1. Create the host folders and a fixed host ID for Orthanc (first time only)
 mkdir -p data/radiopaedia-connect data/orthanc data/orthanc-export orthanc.d
@@ -92,7 +94,7 @@ Radiopaedia Connect application settings are saved in its database, in `data/rad
 
 ### Browser-free setup with Docker
 
-The opt-in `connect-configure` service applies [connect-config.json](./connect-config.json) through Connect's existing settings API. It uses the official application image unchanged and Python's standard library in a separate, read-only helper container. Normal `docker compose up -d` does **not** run the helper.
+The `connect-configure` service automatically applies [connect-config.json](./connect-config.json) through Connect's existing settings API on normal `docker compose up -d`. It uses the official application image unchanged and Python's standard library in a separate, read-only helper container. Create its required secret files before starting the stack.
 
 1. Create a private directory and enter the admin password from a WSL/Linux Bash terminal. For an existing installation, use its **current** admin password. For a fresh installation, choose a new password of at least six characters.
 
@@ -110,12 +112,16 @@ The opt-in `connect-configure` service applies [connect-config.json](./connect-c
 
    ```bash
    docker compose up -d
-   docker compose --profile configure run --rm connect-configure
+   docker compose logs -f connect-configure
    ```
 
    The helper waits up to 60 seconds for the API, creates/verifies the admin password, merges local settings, creates/updates Orthanc, restarts the DICOM listener, verifies saved values, and tests Connect → Orthanc with DICOM C-ECHO. Credentials and session cookies stay out of its logs and are held in memory. It connects directly to `http://127.0.0.1:5000` using the shared host network; Caddy is not required.
 
-4. Repeat the second command whenever you change the configuration. The helper is deliberately **not** an automatic startup hook. It leaves unrelated settings/nodes alone and does not create duplicate Orthanc nodes on repeat runs. Each run briefly restarts the DICOM listener, even if database settings already match, to refresh its in-memory allowed calling AE titles after any earlier interrupted run. Apply while no DICOM transfers are active.
+4. After changing configuration or secret files, run `docker compose up -d` again. Compose starts the exited helper again; successful completion leaves it in `Exited (0)` state, which is expected. Check its logs and exit status with `docker compose logs connect-configure` and `docker compose ps -a connect-configure`. Detached startup does not wait for configuration success: the app can remain running even if the helper fails.
+
+The helper leaves unrelated settings/nodes alone and does not create duplicate Orthanc nodes on repeat runs. Each run briefly restarts the DICOM listener, even if database settings already match, to refresh its in-memory allowed calling AE titles after any earlier interrupted run. Apply while no DICOM transfers are active. A host/Docker reboot or `docker restart radiopaedia-connect` does **not** rerun the helper; saved database settings still persist. Likewise, `docker compose up -d radiopaedia-connect` targets only the app, not the helper. If a configuration run is already in progress, another `up` does not start a second one.
+
+To apply settings explicitly and receive the helper's exit code in your terminal, use `docker compose run --rm connect-configure`. Do not run this concurrently with an automatic configuration run.
 
 The default file does not change OAuth or SMTP credentials. If OAuth is not configured yet, the helper reports that setup is still incomplete, even when the requested DICOM settings were successfully applied.
 
@@ -148,7 +154,7 @@ Remote nodes are matched by `name`, ignoring case. Multiple matching nodes cause
 To allow a slower startup, override the helper arguments:
 
 ```bash
-docker compose --profile configure run --rm connect-configure \
+docker compose run --rm connect-configure \
   --config /configure/connect.json \
   --admin-password-file /run/secrets/admin-password \
   --wait-seconds 120
@@ -302,7 +308,8 @@ docker compose start
 | Task | Command |
 |---|---|
 | Start / update after editing the yml | `docker compose up -d` |
-| Apply browser-free Connect settings | `docker compose --profile configure run --rm connect-configure` |
+| Apply settings automatically with stack startup | `docker compose up -d` |
+| Apply Connect settings explicitly (returns configuration exit code) | `docker compose run --rm connect-configure` |
 | Stop | `docker compose stop` |
 | Follow Orthanc logs (verbose) | `docker logs -f orthanc` |
 | Follow Radiopaedia Connect logs | `docker logs -f radiopaedia-connect` |
