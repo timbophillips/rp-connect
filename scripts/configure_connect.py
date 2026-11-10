@@ -136,7 +136,7 @@ class Api:
             urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
         )
 
-    def request(self, method, route, body=None, timeout=None):
+    def request(self, method, route, body=None, timeout=None, expect_json=True):
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             self.base_url + route, data=data, method=method,
@@ -151,6 +151,8 @@ class Api:
             raise ApiError(method, route, status) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             raise ConnectionError(f"{method} {route}: API connection failed.") from None
+        if not expect_json:
+            return None
         try:
             return json.loads(raw)
         except (ValueError, UnicodeError):
@@ -267,7 +269,7 @@ def configure(api, local_changes, desired_node, password, wait_seconds=60):
     finally:
         already_failed = sys.exc_info()[0] is not None
         try:
-            api.request("POST", "/logout")
+            api.request("POST", "/logout", expect_json=False)
         except ConfigurationError:
             if not already_failed:
                 raise ConfigurationError("Settings applied, but the temporary admin session could not be invalidated.") from None

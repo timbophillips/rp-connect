@@ -63,7 +63,7 @@ class Fixture:
                 self.handle_request("PUT")
 
             def respond(self, status, body, headers=None):
-                data = json.dumps(body).encode()
+                data = b"" if body is None else json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
@@ -138,7 +138,7 @@ class Fixture:
                     return self.respond(200, {"success": fixture.echo_success, "message": CLIENT_SECRET})
                 if route == "/logout":
                     fixture.session = False
-                    return self.respond(200, {})
+                    return self.respond(200, None)
                 self.respond(404, {})
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -162,7 +162,7 @@ class ConfigurationTests(unittest.TestCase):
         self.addCleanup(self.stdout.__exit__, None, None, None)
 
     def apply(self, local=None, node=NODE, password=PASSWORD):
-        connect.configure(self.fixture.api, local or {}, node, password, wait_seconds=0)
+        connect.configure(self.fixture.api, local or {}, node, password, wait_seconds=1)
 
     def test_existing_install_preserves_unmanaged_fields_and_secrets(self):
         self.apply({"storageScpAeTitle": "RCONNECT_SCP", "maxConcurrentDownloads": 5})
@@ -247,6 +247,16 @@ class ConfigurationTests(unittest.TestCase):
         self.fixture.fail_route = "/logout"
         with self.assertRaisesRegex(connect.ConfigurationError, "session could not be invalidated"):
             self.apply()
+
+    def test_empty_logout_response_is_successful_and_invalidates_session(self):
+        self.apply()
+        self.assertFalse(self.fixture.session)
+        self.assertEqual(self.fixture.calls[-1][:2], ("POST", "/logout"))
+
+    def test_required_json_response_still_rejects_empty_body(self):
+        self.fixture.api.request("POST", "/password/verify", {"password": PASSWORD})
+        with self.assertRaisesRegex(connect.ConfigurationError, "expected a JSON response"):
+            self.fixture.api.request("POST", "/logout")
 
     def test_logout_failure_does_not_hide_primary_error(self):
         self.fixture.fail_route = "/logout"
