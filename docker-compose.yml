@@ -13,6 +13,46 @@ services:
       - RCONNECT_SCP_PORT=4104
     restart: unless-stopped
 
+  connect-configure:
+    image: python:3.14-alpine
+    profiles: ["configure"]
+    network_mode: host
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["python", "-u", "-B", "/configure/configure_connect.py"]
+    command:
+      - --config
+      - /configure/connect.json
+      - --admin-password-file
+      - /run/secrets/admin-password
+    volumes:
+      - type: bind
+        source: ./scripts/configure_connect.py
+        target: /configure/configure_connect.py
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./connect-config.json
+        target: /configure/connect.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets/connect
+        target: /run/secrets
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      radiopaedia-connect:
+        condition: service_started
+      orthanc:
+        condition: service_started
+    restart: "no"
+
   orthanc:
     image: orthancteam/orthanc:26.9.1
     container_name: orthanc
@@ -42,7 +82,7 @@ services:
       ORTHANC__DICOM_CHECK_MODALITY_HOST: "false"
       ORTHANC__REST_API_WRITE_TO_FILE_SYSTEM_ENABLED: "true"
       ORTHANC__DICOM_MODALITIES: |
-        { "RCONNECT_SCP": ["RCONNECT_SCP", "127.0.0.1", 4104] }
+        { "RCONNECT_SCP": ["RCONNECT_SCP", "localhost", 4104] }
 
   caddy:
     image: caddy:latest

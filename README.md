@@ -60,7 +60,7 @@ docker compose ps
 
 > ⚠️ Create `data/orthanc-hostid` **before** the first `docker compose up`. If it's missing, Docker creates a *folder* with that name and Orthanc won't start.
 
-Then open **<https://localhost:8443>** and work through the setup below.
+Then either use the browser-free setup below or open **<https://localhost:8443>** and work through the web setup.
 
 ### Migrating an existing bridge-network deployment
 
@@ -88,7 +88,79 @@ The existing data mounts and Caddy volumes are unchanged; do not delete them.
 
 ## ⚙️ Setting up Radiopaedia Connect
 
-Radiopaedia Connect application settings are entered in its web UI and saved in its database, in `data/radiopaedia-connect/`. There's no config file to edit. The DICOM listener port is overridden at startup by `RCONNECT_SCP_PORT=4104` in Compose.
+Radiopaedia Connect application settings are saved in its database, in `data/radiopaedia-connect/`. Configure them through the web UI or the API helper below; the upstream app does not import these settings from `appsettings.json`. The DICOM listener port is overridden at startup by `RCONNECT_SCP_PORT=4104` in Compose.
+
+### Browser-free setup with Docker
+
+The opt-in `connect-configure` service applies [connect-config.json](./connect-config.json) through Connect's existing settings API. It uses the official application image unchanged and Python's standard library in a separate, read-only helper container. Normal `docker compose up -d` does **not** run the helper.
+
+1. Create a private directory and enter the admin password from a WSL/Linux Bash terminal. For an existing installation, use its **current** admin password. For a fresh installation, choose a new password of at least six characters.
+
+   ```bash
+   mkdir -p secrets/connect
+   chmod 700 secrets secrets/connect
+   (umask 077; read -r -s -p 'Connect admin password: ' password; printf '\n'; printf '%s' "$password" > secrets/connect/admin-password)
+   ```
+
+   The password is not echoed or placed in shell history. Everything under `secrets/` is git-ignored; do not commit credentials or paste them into Compose. Ordinary local files are not encrypted by Docker: protect this directory and the application database.
+
+2. Review [connect-config.json](./connect-config.json). Its defaults configure `RCONNECT_SCP`, five concurrent downloads, and the `orthanc` node at `127.0.0.1:4242`, AE `ORTHANC`, calling AE `RCONNECT_SCP`.
+
+3. Start the stack and apply the configuration:
+
+   ```bash
+   docker compose up -d
+   docker compose --profile configure run --rm connect-configure
+   ```
+
+   The helper waits up to 60 seconds for the API, creates/verifies the admin password, merges local settings, creates/updates Orthanc, restarts the DICOM listener, verifies saved values, and tests Connect → Orthanc with DICOM C-ECHO. Credentials and session cookies stay out of its logs and are held in memory. It connects directly to `http://127.0.0.1:5000` using the shared host network; Caddy is not required.
+
+4. Repeat the second command whenever you change the configuration. The helper is deliberately **not** an automatic startup hook. It leaves unrelated settings/nodes alone and does not create duplicate Orthanc nodes on repeat runs. Each run briefly restarts the DICOM listener, even if database settings already match, to refresh its in-memory allowed calling AE titles after any earlier interrupted run. Apply while no DICOM transfers are active.
+
+The default file does not change OAuth or SMTP credentials. If OAuth is not configured yet, the helper reports that setup is still incomplete, even when the requested DICOM settings were successfully applied.
+
+#### Optional Radiopaedia credentials and SMTP
+
+Create credential files using the same private input pattern:
+
+```bash
+(umask 077; read -r -s -p 'Radiopaedia client ID: ' value; printf '\n'; printf '%s' "$value" > secrets/connect/radiopaedia-client-id)
+(umask 077; read -r -s -p 'Radiopaedia client secret: ' value; printf '\n'; printf '%s' "$value" > secrets/connect/radiopaedia-client-secret)
+```
+
+Add these properties inside `localSettings` in [connect-config.json](./connect-config.json), keeping its existing properties:
+
+```json
+"radiopaediaClientIdFile": "/run/secrets/radiopaedia-client-id",
+"radiopaediaClientSecretFile": "/run/secrets/radiopaedia-client-secret"
+```
+
+The helper resolves `*File` properties before sending the request; they are not upstream API fields. Each secret file must contain one non-empty line. A trailing line ending is removed; other characters, including spaces, are preserved. For direct execution outside Docker, relative secret paths resolve against the configuration file's directory.
+
+SMTP properties supported inside `localSettings` are `smtpHost`, `smtpPort`, `smtpUsername`, `smtpPasswordFile`, `smtpFromAddress`, and `notificationRecipients` (a comma-separated recipient string, matching the web UI). Store the SMTP password under `secrets/connect/` and reference its container path. `radiopaediaClientId` may also be supplied directly if it is not sensitive in your deployment.
+
+Omitted local properties retain their current values. Empty strings explicitly clear string settings; `smtpPort: null` clears that port. The API masks existing OAuth/SMTP secrets as `********`; the helper preserves those masked values when merging. Read-back verifies only secret **presence**, not their actual contents. Explicitly supplied secrets are sent on every run because the API cannot reveal whether they already match.
+
+Remote nodes are matched by `name`, ignoring case. Multiple matching nodes cause an error before settings writes. Keep the managed node's name stable: renaming it creates a new node and leaves the old one untouched. Omitting `orthancNode` leaves all nodes untouched and skips C-ECHO; omitting its `sortOrder` preserves the existing order (or uses zero for a new node).
+
+**Failures return a nonzero exit code.** There is no cross-request transaction or rollback: earlier writes may already have persisted. Correct the problem and rerun. A failed echo means saved settings did not pass the connectivity test; inspect Orthanc's logs and AE/host/port settings. An incorrect existing password is never reset automatically.
+
+To allow a slower startup, override the helper arguments:
+
+```bash
+docker compose --profile configure run --rm connect-configure \
+  --config /configure/connect.json \
+  --admin-password-file /run/secrets/admin-password \
+  --wait-seconds 120
+```
+
+The wait budget applies separately to API readiness and retrying failed DICOM echoes; individual requests have a 15-second timeout. Authentication/write failures are not retried. C-ECHO tests connectivity, not a full C-MOVE/C-STORE transfer. User authorisation on Radiopaedia remains a separate browser-based OAuth flow.
+
+The helper targets the upstream settings API inspected at commit [`d074279`](https://github.com/radiopaedia/RadiopaediaConnect/tree/d074279a30c7ea65560f67152e287f0a0d6402df). Pin a compatible dated application image tag for predictable upgrades; `latest` can change this API. Test the helper itself without Docker or real credentials:
+
+```bash
+python3 -B -m unittest discover -s tests -v
+```
 
 ### 1️⃣ Initial setup: admin password
 
@@ -230,6 +302,7 @@ docker compose start
 | Task | Command |
 |---|---|
 | Start / update after editing the yml | `docker compose up -d` |
+| Apply browser-free Connect settings | `docker compose --profile configure run --rm connect-configure` |
 | Stop | `docker compose stop` |
 | Follow Orthanc logs (verbose) | `docker logs -f orthanc` |
 | Follow Radiopaedia Connect logs | `docker logs -f radiopaedia-connect` |

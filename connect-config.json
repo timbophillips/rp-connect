@@ -1,0 +1,14 @@
+{
+  "localSettings": {
+    "storageScpAeTitle": "RCONNECT_SCP",
+    "maxConcurrentDownloads": 5
+  },
+  "orthancNode": {
+    "name": "orthanc",
+    "aeTitle": "ORTHANC",
+    "host": "127.0.0.1",
+    "port": 4242,
+    "callingAe": "RCONNECT_SCP",
+    "sortOrder": 0
+  }
+}

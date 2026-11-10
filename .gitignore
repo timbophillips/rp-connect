@@ -1,2 +1,4 @@
 data/
 orthanc.d/
+secrets/
+__pycache__/
