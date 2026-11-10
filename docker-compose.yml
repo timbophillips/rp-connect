@@ -2,8 +2,7 @@ services:
   radiopaedia-connect:
     image: radiopaediaorg/radiopaedia-connect:latest
     container_name: radiopaedia-connect
-    ports:
-      - "4104:104"    # Host port 4104 maps to internal container port 104
+    network_mode: host
     read_only: true
     tmpfs:
       - /tmp
@@ -11,14 +10,13 @@ services:
       - ./data/radiopaedia-connect:/data   # SQLite DB, downloaded DICOMs, data-protection keys
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - RCONNECT_SCP_PORT=4104
     restart: unless-stopped
 
   orthanc:
     image: orthancteam/orthanc:26.9.1
     container_name: orthanc
-    ports:
-      - "4242:4242"   # Orthanc DICOM port
-      - "8042:8042"   # Orthanc Explorer web UI port
+    network_mode: host
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -44,14 +42,12 @@ services:
       ORTHANC__DICOM_CHECK_MODALITY_HOST: "false"
       ORTHANC__REST_API_WRITE_TO_FILE_SYSTEM_ENABLED: "true"
       ORTHANC__DICOM_MODALITIES: |
-        { "RCONNECT_SCP": ["RCONNECT_SCP", "radiopaedia-connect", 104] }
+        { "RCONNECT_SCP": ["RCONNECT_SCP", "127.0.0.1", 4104] }
 
   caddy:
     image: caddy:latest
     container_name: caddy-proxy
-    ports:
-      - "8080:8080"   # Non-privileged HTTP port
-      - "8443:8443"   # Non-privileged HTTPS port
+    network_mode: host
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
@@ -71,7 +67,7 @@ configs:
       }
 
       https://localhost:8443 {
-          reverse_proxy radiopaedia-connect:5000 {
+          reverse_proxy 127.0.0.1:5000 {
               header_up Host {host}
               header_up X-Real-IP {remote}
               header_up X-Forwarded-For {remote}

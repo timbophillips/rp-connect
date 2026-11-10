@@ -19,7 +19,7 @@ flowchart LR
     you -- "http://localhost:8042" --> orthanc
     pacs -- "C-STORE → :4242" --> orthanc
     rp -- "C-FIND / C-MOVE" --> orthanc
-    orthanc -- "C-STORE → :104" --> rp
+    orthanc -- "C-STORE → :4104" --> rp
     rp -- "upload" --> rp_cloud
 ```
 
@@ -34,9 +34,13 @@ flowchart LR
 | Orthanc classic explorer | <http://localhost:8042/app/explorer.html> | The older UI. |
 | Orthanc REST API | <http://localhost:8042/> | e.g. `/statistics`, `/modalities` |
 | **Orthanc DICOM** | `localhost:4242`, AE **`ORTHANC`** | Send studies here from your PACS or viewer. |
-| Radiopaedia Connect DICOM | `localhost:4104`, AE **`RCONNECT_SCP`** | Usually only Orthanc talks to it, over the internal Docker network on port `104`. |
+| Radiopaedia Connect DICOM | `localhost:4104`, AE **`RCONNECT_SCP`** | Listener port set by `RCONNECT_SCP_PORT=4104`. |
 
-> 💡 Inside the Docker network, containers reach each other by service name: `orthanc:4242` and `radiopaedia-connect:104`. Use `localhost` only from the host machine.
+> 💡 All three services use host networking. They reach each other through `127.0.0.1`, not Docker service names. There is no port mapping: Connect listens directly on `4104`, and Caddy proxies to `127.0.0.1:5000`.
+
+Host networking works natively on Linux. On Docker Desktop 4.34 or later, enable **Settings → Resources → Network → Enable host networking** for Linux containers. Ensure ports `4104`, `4242`, `5000`, `8042`, `8080`, and `8443` are available.
+
+> ⚠️ Host networking exposes listeners directly on the host. Orthanc has authentication disabled and remote access enabled. Restrict access to trusted machines with your host firewall, particularly ports `8042`, `5000`, `4104`, and `4242`.
 
 ---
 
@@ -58,11 +62,33 @@ docker compose ps
 
 Then open **<https://localhost:8443>** and work through the setup below.
 
+### Migrating an existing bridge-network deployment
+
+1. In Connect's **Settings → Remote Nodes**, edit the existing Orthanc node: change **Host / IP** from `orthanc` to `127.0.0.1`, leaving port `4242` and the AE titles unchanged. This setting is saved in the database, so Compose cannot update it.
+2. Update any machine-local modality pointing at an old Docker bridge gateway to the appropriate host address (`127.0.0.1` for a viewer on the same host).
+3. Recreate the services:
+
+   ```bash
+   docker compose config --quiet
+   docker compose up -d --force-recreate
+   docker compose logs --tail=100 radiopaedia-connect
+   ```
+
+4. Confirm the Connect DICOM listener reports port `4104`. Test the Orthanc node's **DICOM C-ECHO (ping)** in Connect, then test the reverse direction:
+
+   ```bash
+   curl --fail-with-body -X POST http://localhost:8042/modalities/RCONNECT_SCP/echo -d '{}'
+   ```
+
+5. Retrieve a study through Connect to verify C-MOVE and the return C-STORE path, not just C-ECHO.
+
+The existing data mounts and Caddy volumes are unchanged; do not delete them.
+
 ---
 
 ## ⚙️ Setting up Radiopaedia Connect
 
-All Radiopaedia Connect settings are entered in its web UI and saved in its database, in `data/radiopaedia-connect/`. There's no config file to edit.
+Radiopaedia Connect application settings are entered in its web UI and saved in its database, in `data/radiopaedia-connect/`. There's no config file to edit. The DICOM listener port is overridden at startup by `RCONNECT_SCP_PORT=4104` in Compose.
 
 ### 1️⃣ Initial setup: admin password
 
@@ -86,7 +112,7 @@ This is the DICOM receiver Radiopaedia Connect uses to accept images that Orthan
 | Field | Value | Why |
 |---|---|---|
 | **AE Title** | **`RCONNECT_SCP`** | Must match the AE title in Orthanc's `RCONNECT_SCP` modality entry in `docker-compose.yml`. Case-sensitive. |
-| **Port** | `104` (fixed) | Exposed on the host as `4104`. |
+| **Port** | `4104` | Set at startup by `RCONNECT_SCP_PORT`, not a Docker port mapping. |
 
 ### 4️⃣ Settings → Remote Nodes
 
@@ -96,7 +122,7 @@ Click **+ Add Node** and enter:
 |---|---|
 | **Display Name** | `orthanc` |
 | **AE Title** | **`ORTHANC`** |
-| **Host / IP** | **`orthanc`** (the Docker service name, *not* `localhost`) |
+| **Host / IP** | **`127.0.0.1`** (shared host network) |
 | **Port** | **`4242`** |
 | **Calling AE Title** | **`RCONNECT_SCP`** |
 
@@ -114,13 +140,13 @@ Save it, then press the **DICOM C-ECHO (ping)** button on the node. A success me
 ### 🔁 How the AE titles fit together
 
 ```
-radiopaedia-connect ──(calling AE: RCONNECT_SCP)──▶ ORTHANC @ orthanc:4242
+radiopaedia-connect ──(calling AE: RCONNECT_SCP)──▶ ORTHANC @ 127.0.0.1:4242
         ▲                                              │
         │       C-MOVE destination: RCONNECT_SCP       │
-        └──────────── radiopaedia-connect:104 ◀────────┘
+        └──────────── 127.0.0.1:4104 ◀─────────────────┘
 ```
 
-When Radiopaedia Connect asks Orthanc for a series, Orthanc looks up **`RCONNECT_SCP`** in its modality list (the `RCONNECT_SCP` entry in `docker-compose.yml`) and sends the images to `radiopaedia-connect:104`. If you change an AE title in one place, change it in the other too.
+When Radiopaedia Connect asks Orthanc for a series, Orthanc looks up **`RCONNECT_SCP`** in its modality list (the `RCONNECT_SCP` entry in `docker-compose.yml`) and sends the images to `127.0.0.1:4104`. If you change an AE title in one place, change it in the other too.
 
 ---
 
@@ -134,7 +160,7 @@ These are set with `ORTHANC__*` environment variables. Each name maps to an Orth
 
 ```yaml
 ORTHANC__DICOM_MODALITIES: |
-  { "RCONNECT_SCP": ["RCONNECT_SCP", "radiopaedia-connect", 104] }
+  { "RCONNECT_SCP": ["RCONNECT_SCP", "127.0.0.1", 4104] }
 ```
 
 ### Machine-local settings: `orthanc.d/*.json` (git-ignored)
@@ -144,7 +170,7 @@ Any `*.json` file in `orthanc.d/` is merged with the settings above at startup. 
 ```json
 {
   "DicomModalities": {
-    "timiv": ["timiv", "172.21.0.1", 5035]
+    "timiv": ["timiv", "127.0.0.1", 5035]
   }
 }
 ```
@@ -155,7 +181,7 @@ Apply changes with:
 docker compose up -d --force-recreate orthanc
 ```
 
-> 💡 To reach a service on the host from inside Docker, use the Docker bridge gateway IP (often `172.17.0.1` or `172.21.0.1`). Find yours with `docker network inspect rp-connect_default`.
+> 💡 With host networking, use `127.0.0.1` for a service on the same host, or the remote machine's reachable IP for a service elsewhere. Old Docker bridge gateway addresses are no longer needed.
 
 ### 📤 Exporting files from Orthanc
 
@@ -218,7 +244,7 @@ docker compose start
 | Symptom | Fix |
 |---|---|
 | Browser warns about the certificate at `https://localhost:8443` | Expected: Caddy issues its own local certificate. Accept it, or trust Caddy's root CA. |
-| C-ECHO from Radiopaedia Connect to Orthanc fails | Use host **`orthanc`** and port **`4242`** (not `localhost` / `8042`), and AE **`ORTHANC`**. |
+| C-ECHO from Radiopaedia Connect to Orthanc fails | Use host **`127.0.0.1`**, port **`4242`** (not `8042`), and AE **`ORTHANC`**. Update the existing node in Settings after migrating from bridge networking. |
 | Studies are requested but never arrive in Radiopaedia Connect | The **DICOM SCP AE Title** must be exactly `RCONNECT_SCP`, matching Orthanc's modality entry. Check **Settings → Logs**. |
 | Orthanc keeps restarting | Run `docker logs orthanc`. Make sure `data/orthanc-hostid` is a **file**, not a folder. |
 | A `timiv` (or other local) modality is missing | Check that `orthanc.d/` exists, holds valid JSON and is mounted. Then recreate Orthanc. |
